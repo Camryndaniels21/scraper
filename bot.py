@@ -3,18 +3,18 @@ import re
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient, events
 import asyncio
+from aiohttp import web  # Keep-alive server import
 
 # Use environment variables for credentials
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 
-# Session file will be stored as 'session.session' in Railway environment
+# Session file will be stored as 'session.session' in Replit environment
 client = TelegramClient('session', api_id, api_hash)
 
 default_group_name = "🔒 X-Force Group 🔒"
 ALLOWED_CHAT_ID = -1002214482286  # Only allow /scrape in this chat
 
-# Original regex patterns for quick line checks
 line_patterns = [
     r'(\d{16})\D+(\d{2})\D+(\d{2})\D+(\d{3})',
     r'(\d{16})\D+(\d{2})\D+(\d{4})\D+(\d{3})',
@@ -22,7 +22,6 @@ line_patterns = [
     r'(\d{15})\D+(\d{2})\D+(\d{4})\D+(\d{3})',
 ]
 
-# Multiline pattern for complex blocks
 multiline_pattern = re.compile(r'''
     (?P<card>(?:\d[\d\s\-]{13,18}\d))   # Card number with optional spaces/dashes
     .*?                                 # non-greedy any chars (incl newlines)
@@ -38,13 +37,11 @@ multiline_pattern = re.compile(r'''
 ''', re.IGNORECASE | re.DOTALL | re.VERBOSE)
 
 def extract_digits(text):
-    # Try line patterns first
     for line in text.splitlines():
         for pattern in line_patterns:
             match = re.search(pattern, line)
             if match:
                 return '|'.join(match.groups())
-    # Fallback to multiline pattern
     match = multiline_pattern.search(text)
     if match:
         card = re.sub(r'[\s\-]', '', match.group('card'))
@@ -59,7 +56,6 @@ async def get_group_by_name(name):
 
 @client.on(events.NewMessage(pattern=r'/scrape(?:\s+(\d+))?(?:\s+(\S+))?'))
 async def handler(event):
-    # Restrict command usage
     if event.chat_id != ALLOWED_CHAT_ID:
         return
 
@@ -134,7 +130,21 @@ async def handler(event):
     else:
         await event.respond(f"No cards found in the last {hours} hour(s) from {group.title}.")
 
+# Keep-alive webserver for uptime monitor
+async def handle(request):
+    return web.Response(text="I'm alive!")
+
+async def keep_alive():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
 async def main():
+    await keep_alive()
     await client.start()
     print("Bot is up and running...")
     await client.run_until_disconnected()
